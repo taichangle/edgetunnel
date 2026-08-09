@@ -1,15 +1,17 @@
-name: Sync upstream
+name: Sync stable upstream and deploy both nodes
 
 on:
   schedule:
-    - cron: "17 2 * * *"
+    # Every Monday at 02:17 UTC (10:17 Beijing time).
+    - cron: "17 2 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: write
+  deployments: write
 
 jobs:
-  sync:
+  sync-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout fork
@@ -17,16 +19,54 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Sync main from upstream
+      - name: Select upstream version at least 7 days old
+        id: sync
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add upstream https://github.com/cmliu/edgetunnel.git
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/cmliu/edgetunnel.git
+          else
+            git remote add upstream https://github.com/cmliu/edgetunnel.git
+          fi
           git fetch upstream main
           git checkout main
-          if [ "$(git rev-parse HEAD)" = "$(git rev-parse upstream/main)" ]; then
-            echo "Already up to date."
+
+          target="$(git rev-list -1 --before='7 days ago' upstream/main)"
+          if [ -z "$target" ]; then
+            echo "No upstream commit old enough to deploy."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git merge --ff-only upstream/main
+
+          before="$(git rev-parse HEAD)"
+          git merge --no-edit "$target"
+          after="$(git rev-parse HEAD)"
+
+          if [ "$before" = "$after" ]; then
+            echo "Stable upstream version is already deployed."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           git push origin main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare second node package
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          mkdir -p .pages-deploy
+          cp _worker.js .pages-deploy/_worker.js
+
+      - name: Deploy second node
+        if: steps.sync.outputs.changed == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN_2 }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_2 }}
+          command: pages deploy .pages-deploy --project-name=edgetunnel-node-2 --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
