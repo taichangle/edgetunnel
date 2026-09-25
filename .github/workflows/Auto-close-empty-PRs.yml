@@ -4,20 +4,16 @@ permissions:
   issues: write
   pull-requests: write
 
+# Automatic execution disabled to avoid background GitHub Actions usage.
+# Re-enable a pull_request_target trigger only when this repository is active again.
 on:
-  pull_request_target:
-    # 只在新建、重新打开、草稿转正式时检查 PR 说明
-    types:
-      - opened
-      - reopened
-      - ready_for_review
+  workflow_dispatch:
 
 jobs:
   check-pr:
     name: Close PRs with empty or short descriptions
     runs-on: ubuntu-latest
-    # 草稿 PR 先不处理，等作者准备好再检查
-    if: ${{ !github.event.pull_request.draft }}
+    if: ${{ github.event_name == 'pull_request_target' && !github.event.pull_request.draft }}
 
     steps:
       - name: Close PR when description is empty or too short
