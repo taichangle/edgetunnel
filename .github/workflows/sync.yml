@@ -3,9 +3,9 @@ name: Upstream Sync
 permissions:
   contents: write
 
+# Automatic daily schedule disabled to avoid background GitHub Actions usage.
+# Manual dispatch is retained for future use.
 on:
-  schedule:
-    - cron: "0 0 * * *" # every day
   workflow_dispatch:
 
 jobs:
